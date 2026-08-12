@@ -1,0 +1,35 @@
+{
+  "name": "String Session Generator Bot",
+  "description": "Telegram Pyrogram V2 String Session Generator Bot with Force Subscribe and Custom API support.",
+  "repository": "https://github.com/Simple-Boy-1k/Satkar-string-session",
+  "keywords": [
+    "python",
+    "telegram",
+    "pyrogram",
+    "session-generator"
+  ],
+  "env": {
+    "API_ID": {
+      "description": "Your Telegram API ID from my.telegram.org",
+      "required": true
+    },
+    "API_HASH": {
+      "description": "Your Telegram API Hash from my.telegram.org",
+      "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Your Telegram Bot Token from @BotFather",
+      "required": true
+    },
+    "FSUBSCRIBE_CHANNEL": {
+      "description": "Force Subscribe channel username without @",
+      "required": false,
+      "value": ""
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}
