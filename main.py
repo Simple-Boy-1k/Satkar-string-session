@@ -1,5 +1,7 @@
 import os
 import time
+import struct
+import base64
 import asyncio
 from pyrogram import Client, filters, enums
 from pyrogram.errors import SessionPasswordNeeded, UserNotParticipant, ChatAdminRequired, ChannelInvalid, PeerIdInvalid
@@ -46,32 +48,63 @@ app = Client("string_gen_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_T
 
 USER_DATA = {}
 
-# Safely clear old sessions & delete temporary files
+# Strict Session Data Wipe & Force Disconnect
 async def clean_user_session(user_id: int):
     if user_id in USER_DATA:
         data = USER_DATA.get(user_id, {})
         sess_name = data.get("sess_name")
         
-        if "p_client" in data:
+        # Disconnect Pyrogram Client
+        if "p_client" in data and data["p_client"]:
             try:
-                await data["p_client"].disconnect()
+                await data["p_client"].stop()
             except Exception:
-                pass
-        if "t_client" in data:
+                try:
+                    await data["p_client"].disconnect()
+                except Exception:
+                    pass
+
+        # Disconnect Telethon Client
+        if "t_client" in data and data["t_client"]:
             try:
                 await data["t_client"].disconnect()
             except Exception:
                 pass
 
-        if sess_name and os.path.exists(f"{sess_name}.session"):
-            try:
-                os.remove(f"{sess_name}.session")
-            except Exception:
-                pass
+        # Delete any temporary session file
+        if sess_name:
+            for ext in [".session", ".session-journal"]:
+                if os.path.exists(f"{sess_name}{ext}"):
+                    try:
+                        os.remove(f"{sess_name}{ext}")
+                    except Exception:
+                        pass
 
         USER_DATA.pop(user_id, None)
 
-# Strict Real-time Force Subscribe Verification Check
+# Custom Pyrogram V1 String Exporter (Fixes 271 bytes error strictly)
+async def get_pyrogram_v1_string(p_client: Client) -> str:
+    try:
+        me = await p_client.get_me()
+        dc_id = await p_client.storage.dc_id()
+        test_mode = await p_client.storage.test_mode()
+        auth_key = await p_client.storage.auth_key()
+        
+        # Pyrogram V1 struct format: >B?256sI? (263 bytes)
+        packed = struct.pack(
+            ">B?256sI?",
+            dc_id,
+            test_mode,
+            auth_key,
+            me.id & 0xFFFFFFFF,  # uint32 trunc
+            me.is_bot
+        )
+        return base64.urlsafe_b64encode(packed).decode("utf-8")
+    except Exception as e:
+        print(f"⚠️ Pyrogram V1 conversion fallback: {e}")
+        return await p_client.export_session_string()
+
+# Force Subscribe Verification Check
 async def check_fsub(client: Client, user_id: int) -> bool:
     if not FSUB_CHAT or (OWNER_ID and user_id == OWNER_ID):
         return True
@@ -106,7 +139,6 @@ async def start_command(client: Client, message: Message):
 
     await clean_user_session(user_id)
 
-    # Check join status strictly
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
         await message.reply_text(
@@ -120,10 +152,9 @@ async def start_command(client: Client, message: Message):
         )
         return
 
-    # User joined -> Show Main Menu
     await show_home_menu(message)
 
-# Force Sub "Try Again / Verified" Button Callback
+# Force Sub Callback
 @app.on_callback_query(filters.regex("check_join"))
 async def check_join_callback(client: Client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
@@ -134,7 +165,6 @@ async def check_join_callback(client: Client, callback_query: CallbackQuery):
         return
     
     await callback_query.answer("✅ Verification Successful!")
-    # Open Main Menu only after successful verification
     await show_home_menu(callback_query)
 
 # /generate Command Handler
@@ -244,10 +274,11 @@ async def select_type_handler(client: Client, callback_query: CallbackQuery):
         await callback_query.answer("❌ Pehle official channel join karein!", show_alert=True)
         return
 
-    session_type = callback_query.data.replace("type_", "")
-    
+    # Flush old connections completely
     await clean_user_session(user_id)
-    sess_name = f"sess_{user_id}_{int(time.time())}"
+
+    session_type = callback_query.data.replace("type_", "")
+    sess_name = f"sess_{user_id}_{time.time_ns()}"
 
     USER_DATA[user_id] = {
         "session_type": session_type,
@@ -365,7 +396,10 @@ async def handle_inputs(client: Client, message: Message):
             else:
                 p_client = data["p_client"]
                 await p_client.sign_in(data["phone_number"], data["phone_code_hash"], otp_code)
-                session_str = await p_client.export_session_string()
+                if stype == "pyrogram":
+                    session_str = await get_pyrogram_v1_string(p_client)
+                else:
+                    session_str = await p_client.export_session_string()
 
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
             
@@ -399,7 +433,10 @@ async def handle_inputs(client: Client, message: Message):
             else:
                 p_client = data["p_client"]
                 await p_client.check_password(password=password)
-                session_str = await p_client.export_session_string()
+                if stype == "pyrogram":
+                    session_str = await get_pyrogram_v1_string(p_client)
+                else:
+                    session_str = await p_client.export_session_string()
 
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
 
@@ -432,9 +469,12 @@ async def handle_inputs(client: Client, message: Message):
                 session_str = t_client.session.save()
                 await t_client.disconnect()
             else:
-                p_client = Client(f"bot_{user_id}_{int(time.time())}", api_id=curr_api_id, api_hash=curr_api_hash, bot_token=bot_tok, in_memory=True)
+                p_client = Client(f"bot_{user_id}_{time.time_ns()}", api_id=curr_api_id, api_hash=curr_api_hash, bot_token=bot_tok, in_memory=True)
                 await p_client.start()
-                session_str = await p_client.export_session_string()
+                if stype == "pyrogram_bot":
+                    session_str = await get_pyrogram_v1_string(p_client)
+                else:
+                    session_str = await p_client.export_session_string()
                 await p_client.stop()
 
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
