@@ -82,7 +82,7 @@ async def clean_user_session(user_id: int):
 
         USER_DATA.pop(user_id, None)
 
-# Custom Pyrogram V1 String Exporter (Fixes 271 bytes error strictly)
+# Custom Pyrogram V1 String Exporter
 async def get_pyrogram_v1_string(p_client: Client) -> str:
     try:
         me = await p_client.get_me()
@@ -90,13 +90,12 @@ async def get_pyrogram_v1_string(p_client: Client) -> str:
         test_mode = await p_client.storage.test_mode()
         auth_key = await p_client.storage.auth_key()
         
-        # Pyrogram V1 struct format: >B?256sI? (263 bytes)
         packed = struct.pack(
             ">B?256sI?",
             dc_id,
             test_mode,
             auth_key,
-            me.id & 0xFFFFFFFF,  # uint32 trunc
+            me.id & 0xFFFFFFFF,
             me.is_bot
         )
         return base64.urlsafe_b64encode(packed).decode("utf-8")
@@ -104,23 +103,24 @@ async def get_pyrogram_v1_string(p_client: Client) -> str:
         print(f"⚠️ Pyrogram V1 conversion fallback: {e}")
         return await p_client.export_session_string()
 
-# Force Subscribe Verification Check
+# Safe & Fixed Force Subscribe Verification Check
 async def check_fsub(client: Client, user_id: int) -> bool:
     if not FSUB_CHAT or (OWNER_ID and user_id == OWNER_ID):
         return True
 
     try:
         member = await client.get_chat_member(FSUB_CHAT, user_id)
-        if member.status in [enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.RESTRICTED]:
+        if member.status in [enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.RESTRICTED, enums.ChatMemberStatus.LEFT]:
             return False
         return True
     except UserNotParticipant:
         return False
     except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
-        print(f"⚠️ FSUB CONFIG ERROR: {e}")
+        print(f"⚠️ FSUB CONFIG ERROR (Make sure bot is Admin in the channel): {e}")
+        # Allows user to proceed if bot lacks admin permissions instead of blocking
         return True
     except Exception as e:
-        print(f"⚠️ FSUB ERROR: {e}")
+        print(f"⚠️ FSUB UNKNOWN ERROR: {e}")
         return False
 
 # Join Channel Keyboard
@@ -154,7 +154,7 @@ async def start_command(client: Client, message: Message):
 
     await show_home_menu(message)
 
-# Force Sub Callback
+# Force Sub "Try Again / Verified" Button Callback
 @app.on_callback_query(filters.regex("check_join"))
 async def check_join_callback(client: Client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
@@ -274,7 +274,6 @@ async def select_type_handler(client: Client, callback_query: CallbackQuery):
         await callback_query.answer("❌ Pehle official channel join karein!", show_alert=True)
         return
 
-    # Flush old connections completely
     await clean_user_session(user_id)
 
     session_type = callback_query.data.replace("type_", "")
