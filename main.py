@@ -11,6 +11,7 @@ from telethon.sessions import StringSession
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
 
 # Channel Force Sub Configs
 RAW_MUST_JOIN = os.environ.get("MUST_JOIN", "").strip()
@@ -44,6 +45,7 @@ FSUB_CHAT, FSUB_LINK = setup_force_sub()
 app = Client("string_gen_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 USER_DATA = {}
+VERIFIED_USERS = set()  # Verified users ka cache memory
 
 # Safely clear old sessions & delete temporary files
 async def clean_user_session(user_id: int):
@@ -51,7 +53,6 @@ async def clean_user_session(user_id: int):
         data = USER_DATA.get(user_id, {})
         sess_name = data.get("sess_name")
         
-        # Disconnect clients if running
         if "p_client" in data:
             try:
                 await data["p_client"].disconnect()
@@ -63,7 +64,6 @@ async def clean_user_session(user_id: int):
             except Exception:
                 pass
 
-        # Delete temp session file from server
         if sess_name and os.path.exists(f"{sess_name}.session"):
             try:
                 os.remove(f"{sess_name}.session")
@@ -72,23 +72,26 @@ async def clean_user_session(user_id: int):
 
         USER_DATA.pop(user_id, None)
 
-# Strict Force Subscribe Verification
+# Fast Single-Time Force Subscribe Verification
 async def check_fsub(client: Client, user_id: int) -> bool:
-    if not FSUB_CHAT:
+    # 1. Pehle se verified user, Owner, ya Disabled FSUB = Instant Fast Pass (0ms Delay)
+    if user_id in VERIFIED_USERS or (OWNER_ID and user_id == OWNER_ID) or not FSUB_CHAT:
         return True
+
     try:
         member = await client.get_chat_member(FSUB_CHAT, user_id)
         if member.status in [enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.RESTRICTED]:
             return False
+        
+        # Success -> Memory me save taaki dobara kabhi check na karna padey
+        VERIFIED_USERS.add(user_id)
         return True
     except UserNotParticipant:
         return False
-    except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
-        print(f"⚠️ FORCE SUB ERROR: {e}")
-        return True
     except Exception as e:
-        print(f"Unexpected ForceSub Error: {e}")
-        return False
+        print(f"⚠️ FSUB BYPASS ON ERROR: {e}")
+        VERIFIED_USERS.add(user_id)
+        return True
 
 # /start Command Handler
 @app.on_message(filters.command("start") & filters.private)
@@ -99,7 +102,7 @@ async def start_command(client: Client, message: Message):
 
     await clean_user_session(user_id)
 
-    # Force Subscribe Check
+    # Force Subscribe Check (Only once for new users)
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
         keyboard = InlineKeyboardMarkup([
@@ -150,6 +153,7 @@ async def check_join_callback(client: Client, callback_query: CallbackQuery):
         await callback_query.answer("❌ Aapne abhi tak channel join nahi kiya hai!", show_alert=True)
         return
     
+    VERIFIED_USERS.add(user_id)
     await callback_query.answer("✅ Verification Successful!")
     await show_home_menu(callback_query)
 
@@ -234,8 +238,6 @@ async def select_type_handler(client: Client, callback_query: CallbackQuery):
     session_type = callback_query.data.replace("type_", "")
     
     await clean_user_session(user_id)
-    
-    # Generate unique session name every single time
     sess_name = f"sess_{user_id}_{int(time.time())}"
 
     USER_DATA[user_id] = {
