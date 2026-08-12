@@ -45,7 +45,6 @@ FSUB_CHAT, FSUB_LINK = setup_force_sub()
 app = Client("string_gen_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 USER_DATA = {}
-VERIFIED_USERS = set()  # Verified users ka cache memory
 
 # Safely clear old sessions & delete temporary files
 async def clean_user_session(user_id: int):
@@ -72,26 +71,31 @@ async def clean_user_session(user_id: int):
 
         USER_DATA.pop(user_id, None)
 
-# Fast Single-Time Force Subscribe Verification
+# Strict Real-time Force Subscribe Verification Check
 async def check_fsub(client: Client, user_id: int) -> bool:
-    # 1. Pehle se verified user, Owner, ya Disabled FSUB = Instant Fast Pass (0ms Delay)
-    if user_id in VERIFIED_USERS or (OWNER_ID and user_id == OWNER_ID) or not FSUB_CHAT:
+    if not FSUB_CHAT or (OWNER_ID and user_id == OWNER_ID):
         return True
 
     try:
         member = await client.get_chat_member(FSUB_CHAT, user_id)
         if member.status in [enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.RESTRICTED]:
             return False
-        
-        # Success -> Memory me save taaki dobara kabhi check na karna padey
-        VERIFIED_USERS.add(user_id)
         return True
     except UserNotParticipant:
         return False
-    except Exception as e:
-        print(f"⚠️ FSUB BYPASS ON ERROR: {e}")
-        VERIFIED_USERS.add(user_id)
+    except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
+        print(f"⚠️ FSUB CONFIG ERROR: {e}")
         return True
+    except Exception as e:
+        print(f"⚠️ FSUB ERROR: {e}")
+        return False
+
+# Join Channel Keyboard
+def get_fsub_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Join Official Channel", url=FSUB_LINK)],
+        [InlineKeyboardButton("🔄 Try Again / Verified", callback_data="check_join")]
+    ])
 
 # /start Command Handler
 @app.on_message(filters.command("start") & filters.private)
@@ -102,25 +106,36 @@ async def start_command(client: Client, message: Message):
 
     await clean_user_session(user_id)
 
-    # Force Subscribe Check (Only once for new users)
+    # Check join status strictly
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Join Official Channel", url=FSUB_LINK)],
-            [InlineKeyboardButton("🔄 Try Again / Verified", callback_data="check_join")]
-        ])
         await message.reply_text(
             f"👋 <b>Welcome {user_mention}!</b>\n\n"
             f"⛔ <b>Access Denied!</b>\n"
             f"Bot ka use karne ke liye pehle humara official channel join karein.\n\n"
             f"👑 <b>Brand:</b> {BRAND_NAME}\n\n"
-            f"👇 <i>Neeche Join Button par click karein aur fir 'Try Again' dabayein.</i>",
-            reply_markup=keyboard,
+            f"👇 <i>Neeche Join Button par click karke channel join karein aur fir 'Try Again / Verified' dabayein.</i>",
+            reply_markup=get_fsub_keyboard(),
             disable_web_page_preview=True
         )
         return
 
+    # User joined -> Show Main Menu
     await show_home_menu(message)
+
+# Force Sub "Try Again / Verified" Button Callback
+@app.on_callback_query(filters.regex("check_join"))
+async def check_join_callback(client: Client, callback_query: CallbackQuery):
+    user_id = callback_query.from_user.id
+
+    is_joined = await check_fsub(client, user_id)
+    if not is_joined:
+        await callback_query.answer("❌ Aapne abhi tak channel join nahi kiya hai! Pehle join karein.", show_alert=True)
+        return
+    
+    await callback_query.answer("✅ Verification Successful!")
+    # Open Main Menu only after successful verification
+    await show_home_menu(callback_query)
 
 # /generate Command Handler
 @app.on_message(filters.command("generate") & filters.private)
@@ -130,34 +145,16 @@ async def generate_command(client: Client, message: Message):
 
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Join Official Channel", url=FSUB_LINK)],
-            [InlineKeyboardButton("🔄 Try Again / Verified", callback_data="check_join")]
-        ])
         await message.reply_text(
-            f"⛔ <b>Access Denied!</b> Please join channel first.",
-            reply_markup=keyboard,
+            f"⛔ <b>Access Denied!</b> Pehle channel join karein.",
+            reply_markup=get_fsub_keyboard(),
             disable_web_page_preview=True
         )
         return
 
     await send_session_menu(message)
 
-# Force Sub Callback
-@app.on_callback_query(filters.regex("check_join"))
-async def check_join_callback(client: Client, callback_query: CallbackQuery):
-    user_id = callback_query.from_user.id
-
-    is_joined = await check_fsub(client, user_id)
-    if not is_joined:
-        await callback_query.answer("❌ Aapne abhi tak channel join nahi kiya hai!", show_alert=True)
-        return
-    
-    VERIFIED_USERS.add(user_id)
-    await callback_query.answer("✅ Verification Successful!")
-    await show_home_menu(callback_query)
-
-# Home Menu Screen
+# Home Main Menu Screen
 async def show_home_menu(message_or_callback):
     user = message_or_callback.from_user if isinstance(message_or_callback, Message) else message_or_callback.from_user
     user_mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
@@ -228,6 +225,12 @@ async def help_menu_callback(client: Client, callback_query: CallbackQuery):
 
 @app.on_callback_query(filters.regex("choose_session_type"))
 async def session_type_menu_cb(client: Client, callback_query: CallbackQuery):
+    user_id = callback_query.from_user.id
+    is_joined = await check_fsub(client, user_id)
+    if not is_joined:
+        await callback_query.answer("❌ Pehle official channel join karein!", show_alert=True)
+        return
+
     await callback_query.answer()
     await send_session_menu(callback_query)
 
@@ -235,6 +238,12 @@ async def session_type_menu_cb(client: Client, callback_query: CallbackQuery):
 @app.on_callback_query(filters.regex("^type_"))
 async def select_type_handler(client: Client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
+
+    is_joined = await check_fsub(client, user_id)
+    if not is_joined:
+        await callback_query.answer("❌ Pehle official channel join karein!", show_alert=True)
+        return
+
     session_type = callback_query.data.replace("type_", "")
     
     await clean_user_session(user_id)
