@@ -18,7 +18,7 @@ from telethon.errors import (
     SessionPasswordNeededError,
     PhoneCodeInvalidError,
     PhoneCodeExpiredError,
-    PasswordChecksFailedError
+    PasswordHashInvalidError
 )
 
 # Environment Variables
@@ -87,7 +87,7 @@ async def check_fsub(client: Client, user_id: int) -> bool:
     except UserNotParticipant:
         return False
     except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
-        print(f"⚠️ FORCE SUB ERROR: Bot channel me Admin nahi hai ya ID galat hai! Details: {e}")
+        print(f"⚠️ FORCE SUB ERROR: Details: {e}")
         return True
     except Exception as e:
         print(f"Unexpected ForceSub Error: {e}")
@@ -122,7 +122,7 @@ async def start_command(client: Client, message: Message):
 
     await show_home_menu(message)
 
-# /generate Command Handler (Direct Command Support)
+# /generate Command Handler
 @app.on_message(filters.command("generate") & filters.private)
 async def generate_command(client: Client, message: Message):
     user_id = message.from_user.id
@@ -420,7 +420,7 @@ async def handle_inputs(client: Client, message: Message):
             )
             await reset_user(user_id)
 
-        except (PasswordHashInvalid, PasswordChecksFailedError):
+        except (PasswordHashInvalid, PasswordHashInvalidError):
             await status_msg.edit_text("❌ <b>Incorrect 2FA Password!</b> Please enter the correct password again:")
         except Exception as e:
             await reset_user(user_id)
