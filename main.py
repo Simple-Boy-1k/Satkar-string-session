@@ -1,61 +1,70 @@
 import os
 import asyncio
-from pyrogram import Client, filters
-from pyrogram.errors import SessionPasswordNeeded, UserNotParticipant
+from pyrogram import Client, filters, enums
+from pyrogram.errors import SessionPasswordNeeded, UserNotParticipant, ChatAdminRequired, ChannelInvalid, PeerIdInvalid
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-# Environment Variables (Heroku Config Vars)
+# Environment Variables
 API_ID = int(os.environ.get("API_ID", "0"))
 API_HASH = os.environ.get("API_HASH", "")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-RAW_MUST_JOIN = os.environ.get("MUST_JOIN", "")  # Chahe link dalo, @ dalo, ya username dalo!
 
-# Automatic Link & Username Sanitizer Function
-def parse_channel_info(raw_input):
-    if not raw_input or not raw_input.strip():
-        return None, None
-    raw_input = raw_input.strip()
-    
-    # Username nikalne ke liye processing
-    if "t.me/" in raw_input:
-        username = raw_input.rsplit("t.me/", 1)[-1].replace("@", "").strip("/")
-    else:
-        username = raw_input.replace("@", "").strip()
-        
-    # Valid Telegram URL banane ke liye logic
-    if raw_input.startswith("http://") or raw_input.startswith("https://"):
-        link = raw_input
-    else:
-        link = f"https://t.me/{username}"
-        
-    return username, link
+# Channel Force Sub Configs
+RAW_MUST_JOIN = os.environ.get("MUST_JOIN", "").strip()
+RAW_MUST_JOIN_LINK = os.environ.get("MUST_JOIN_LINK", "").strip()
 
-CHANNEL_USERNAME, CHANNEL_LINK = parse_channel_info(RAW_MUST_JOIN)
+# Custom Brand Name Config (Only SARKAR)
+BRAND_NAME = os.environ.get("BRAND_NAME", "𝐒𝐀𝐑𝐊𝐀𝐑").strip()
+
+def setup_force_sub():
+    chat_target = None
+    link_target = "https://t.me/Telegram"
+
+    if RAW_MUST_JOIN:
+        if RAW_MUST_JOIN.startswith("-100") or RAW_MUST_JOIN.lstrip("-").isdigit():
+            chat_target = int(RAW_MUST_JOIN)
+        else:
+            chat_target = RAW_MUST_JOIN.replace("@", "").replace("https://t.me/", "").replace("t.me/", "").strip()
+
+    if RAW_MUST_JOIN_LINK:
+        if not RAW_MUST_JOIN_LINK.startswith(("http://", "https://")):
+            link_target = f"https://{RAW_MUST_JOIN_LINK}"
+        else:
+            link_target = RAW_MUST_JOIN_LINK
+    elif isinstance(chat_target, str) and chat_target:
+        link_target = f"https://t.me/{chat_target}"
+
+    return chat_target, link_target
+
+FSUB_CHAT, FSUB_LINK = setup_force_sub()
 
 app = Client("string_gen_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Temporary User Data Storage
 USER_DATA = {}
 
-# Channel Membership Verification
-async def check_fsub(client, user_id):
-    if not CHANNEL_USERNAME:
+# Strict Force Subscribe Verification
+async def check_fsub(client: Client, user_id: int) -> bool:
+    if not FSUB_CHAT:
         return True
     try:
-        member = await client.get_chat_member(CHANNEL_USERNAME, user_id)
-        if member.status in ["kicked", "banned"]:
+        member = await client.get_chat_member(FSUB_CHAT, user_id)
+        if member.status in [enums.ChatMemberStatus.BANNED, enums.ChatMemberStatus.RESTRICTED]:
             return False
         return True
     except UserNotParticipant:
         return False
-    except Exception:
+    except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
+        print(f"⚠️ FORCE SUB ERROR: Bot channel me Admin nahi hai ya ID galat hai! Details: {e}")
         return True
+    except Exception as e:
+        print(f"Unexpected ForceSub Error: {e}")
+        return False
 
 # /start Command Handler
 @app.on_message(filters.command("start") & filters.private)
-async def start_command(client, message: Message):
+async def start_command(client: Client, message: Message):
     user_id = message.from_user.id
     user_first = message.from_user.first_name
     user_mention = f"<a href='tg://user?id={user_id}'>{user_first}</a>"
@@ -63,18 +72,19 @@ async def start_command(client, message: Message):
     if user_id in USER_DATA:
         USER_DATA.pop(user_id, None)
 
-    # STRICT FORCE SUBSCRIBE CHECK
+    # Force Subscribe Check
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK)],
+            [InlineKeyboardButton("📢 Join Official Channel", url=FSUB_LINK)],
             [InlineKeyboardButton("🔄 Try Again / Verified", callback_data="check_join")]
         ])
         await message.reply_text(
             f"👋 <b>Welcome {user_mention}!</b>\n\n"
-            "⛔ <b>Access Denied!</b>\n"
-            "Bot ko use karne ke liye aapko humara official update channel join karna zaroori hai.\n\n"
-            "👇 <i>Neeche button par click karke channel join karein aur fir 'Try Again' dabayein.</i>",
+            f"⛔ <b>Access Denied!</b>\n"
+            f"Bot ka use karne ke liye pehle humara official channel join karein.\n\n"
+            f"👑 <b>Brand:</b> {BRAND_NAME}\n\n"
+            f"👇 <i>Neeche Join Button par click karein aur fir 'Try Again' dabayein.</i>",
             reply_markup=keyboard,
             disable_web_page_preview=True
         )
@@ -82,37 +92,37 @@ async def start_command(client, message: Message):
 
     await show_home_menu(message)
 
-# Force Sub Try Again Callback
+# Force Sub Callback
 @app.on_callback_query(filters.regex("check_join"))
-async def check_join_callback(client, callback_query: CallbackQuery):
+async def check_join_callback(client: Client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
 
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
-        await callback_query.answer("❌ Abhi tak join nahi kiya! Pehle channel join karo.", show_alert=True)
+        await callback_query.answer("❌ Aapne abhi tak channel join nahi kiya hai!", show_alert=True)
         return
     
-    await callback_query.answer("✅ Channel Verified Successfully!")
+    await callback_query.answer("✅ Verification Successful!")
     await show_home_menu(callback_query)
 
-# Main Home Menu
+# Home Menu Screen
 async def show_home_menu(message_or_callback):
     user = message_or_callback.from_user if isinstance(message_or_callback, Message) else message_or_callback.from_user
     user_mention = f"<a href='tg://user?id={user.id}'>{user.first_name}</a>"
 
-    updates_url = CHANNEL_LINK if CHANNEL_LINK else "https://t.me/Telegram"
-
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("⚡ Generate Session", callback_data="choose_session_type")],
         [
-            InlineKeyboardButton("Help", callback_data="help_menu"),
-            InlineKeyboardButton("Updates ↗", url=updates_url)
+            InlineKeyboardButton("📖 Help", callback_data="help_menu"),
+            InlineKeyboardButton("📢 Updates ↗", url=FSUB_LINK)
         ]
     ])
+    
     text = (
-        f"<b>☆𝙎𝘼𝙍𝙆𝘼𝙍 メ 𝙉𝙊𝙓☆ STRING SESSION GENERATOR</b>\n\n"
-        f"Welcome {user_mention}!\n\n"
-        "Choose an option below to generate your session string."
+        f"👑 <b>{BRAND_NAME} STRING SESSION GENERATOR</b> 👑\n\n"
+        f"👋 Welcome {user_mention}!\n\n"
+        f"Select an option below to generate your string session safely and fast.\n\n"
+        f"⚡ <b>POWERED BY:</b> {BRAND_NAME}"
     )
     
     if isinstance(message_or_callback, Message):
@@ -121,29 +131,30 @@ async def show_home_menu(message_or_callback):
         await message_or_callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
 
 @app.on_callback_query(filters.regex("home_back"))
-async def home_back_callback(client, callback_query: CallbackQuery):
+async def home_back_callback(client: Client, callback_query: CallbackQuery):
     USER_DATA.pop(callback_query.from_user.id, None)
     await callback_query.answer()
     await show_home_menu(callback_query)
 
-# Help Menu Callback
+# Help Menu
 @app.on_callback_query(filters.regex("help_menu"))
-async def help_menu_callback(client, callback_query: CallbackQuery):
+async def help_menu_callback(client: Client, callback_query: CallbackQuery):
     await callback_query.answer()
     await callback_query.message.edit_text(
-        "📖 <b>Help & Instructions:</b>\n\n"
-        "1. Click on <b>Generate Session</b>.\n"
-        "2. Select your Session Type (Pyrogram / Telethon / Bot).\n"
-        "3. Send your `API_ID` & `API_HASH` (or send /skip for default credentials).\n"
-        "4. Enter Phone Number, OTP, and 2FA password.\n"
-        "5. Get your Session String instantly!\n\n"
-        "⚡ Powered by ☆𝙎𝘼𝙍𝙆𝘼𝙍 メ 𝙉𝙊𝙓☆",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="home_back")]])
+        f"📖 <b>Instructions & Help:</b>\n\n"
+        f"1. Click on <b>Generate Session</b>.\n"
+        f"2. Select Session Type (Pyrogram / Telethon / Bot).\n"
+        f"3. Send your `API_ID` & `API_HASH` (or send /skip for default credentials).\n"
+        f"4. Send your Phone Number, OTP, and 2FA password.\n"
+        f"5. Receive your String Session instantly!\n\n"
+        f"⚡ <b>Brand:</b> {BRAND_NAME}",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="home_back")]]),
+        disable_web_page_preview=True
     )
 
-# Session Type Selection Screen
+# Session Type Menu
 @app.on_callback_query(filters.regex("choose_session_type"))
-async def session_type_menu(client, callback_query: CallbackQuery):
+async def session_type_menu(client: Client, callback_query: CallbackQuery):
     keyboard = InlineKeyboardMarkup([
         [
             InlineKeyboardButton("Pyrogram", callback_data="type_pyrogram"),
@@ -156,18 +167,18 @@ async def session_type_menu(client, callback_query: CallbackQuery):
             InlineKeyboardButton("Pyrogram Bot", callback_data="type_pyrogram_bot"),
             InlineKeyboardButton("Telethon Bot", callback_data="type_telethon_bot")
         ],
-        [InlineKeyboardButton("Back", callback_data="home_back")]
+        [InlineKeyboardButton("« Back", callback_data="home_back")]
     ])
     text = (
-        "<b>Choose the Session Type</b>\n\n"
-        "Select which type of string session you want to generate."
+        f"⚙️ <b>Select Session Type</b>\n\n"
+        f"Choose which string session protocol you want to generate."
     )
     await callback_query.answer()
     await callback_query.message.edit_text(text, reply_markup=keyboard)
 
 # Type Selected Handler
 @app.on_callback_query(filters.regex("^type_"))
-async def select_type_handler(client, callback_query: CallbackQuery):
+async def select_type_handler(client: Client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     session_type = callback_query.data.replace("type_", "")
     
@@ -187,15 +198,15 @@ async def select_type_handler(client, callback_query: CallbackQuery):
     }
     
     await callback_query.answer()
-    await callback_query.message.reply_text(f"Starting <b>{display_name}</b> session generator...")
+    await callback_query.message.reply_text(f"🚀 Starting <b>{display_name}</b> generator...")
     await callback_query.message.reply_text(
         "Please send your <b>API_ID</b> to proceed.\n\n"
-        "Send /skip to use the bot's default API credentials."
+        "Send /skip to use default API credentials."
     )
 
 # /skip Command Handler
 @app.on_message(filters.command("skip") & filters.private)
-async def skip_api_credentials(client, message: Message):
+async def skip_api_credentials(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id not in USER_DATA:
         return
@@ -211,9 +222,9 @@ async def skip_api_credentials(client, message: Message):
         USER_DATA[user_id]["step"] = "phone"
         await message.reply_text("Please send your <b>Phone Number</b> with country code (e.g., `+919876543210`):")
 
-# Text Inputs Handler (API ID, Hash, Phone, OTP, Password)
+# Input Handler
 @app.on_message(filters.private & ~filters.command(["start", "skip"]))
-async def handle_inputs(client, message: Message):
+async def handle_inputs(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id not in USER_DATA:
         return
@@ -275,7 +286,7 @@ async def handle_inputs(client, message: Message):
 
             await status_msg.edit_text(
                 f"📨 OTP sent to `{phone_number}`!\n\n"
-                "Please enter the OTP in this format: `1 2 3 4 5` (space separated)."
+                "Please enter OTP in this format: `1 2 3 4 5` (space separated)."
             )
         except Exception as e:
             USER_DATA.pop(user_id, None)
@@ -303,16 +314,16 @@ async def handle_inputs(client, message: Message):
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
             
             await status_msg.edit_text(
-                f"✅ <b>{stype.upper()} Session Generated!</b>\n\n"
-                f"👤 <b>For:</b> {user_mention}\n\n"
+                f"✅ <b>{stype.upper()} Session Generated Successfully!</b>\n\n"
+                f"👤 <b>User:</b> {user_mention}\n\n"
                 f"<code>{session_str}</code>\n\n"
-                "⚠️ <i>Keep this string safe and do not share it with anyone!</i>",
+                f"⚡ <i>Powered by {BRAND_NAME}</i>",
                 disable_web_page_preview=True
             )
 
         except SessionPasswordNeeded:
             USER_DATA[user_id]["step"] = "password"
-            await status_msg.edit_text("🔒 2-Step Verification is enabled on your account. Please send your password:")
+            await status_msg.edit_text("🔒 2-Step Verification is enabled. Please send your 2FA password:")
         except Exception as e:
             USER_DATA.pop(user_id, None)
             await status_msg.edit_text(f"❌ **Verification Failed:** `{str(e)}`\n\nSend /start to restart.")
@@ -339,17 +350,17 @@ async def handle_inputs(client, message: Message):
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
 
             await status_msg.edit_text(
-                f"✅ <b>{stype.upper()} Session Generated!</b>\n\n"
-                f"👤 <b>For:</b> {user_mention}\n\n"
+                f"✅ <b>{stype.upper()} Session Generated Successfully!</b>\n\n"
+                f"👤 <b>User:</b> {user_mention}\n\n"
                 f"<code>{session_str}</code>\n\n"
-                "⚠️ <i>Keep this string safe and do not share it with anyone!</i>",
+                f"⚡ <i>Powered by {BRAND_NAME}</i>",
                 disable_web_page_preview=True
             )
         except Exception as e:
             USER_DATA.pop(user_id, None)
             await status_msg.edit_text(f"❌ **Error:** `{str(e)}`\n\nSend /start to restart.")
 
-    # Step 6: Bot Token Session Generation
+    # Step 6: Bot Session Generation
     elif step == "bot_token":
         bot_tok = text
         stype = data["session_type"]
@@ -375,8 +386,9 @@ async def handle_inputs(client, message: Message):
 
             await status_msg.edit_text(
                 f"✅ <b>{stype.upper()} Session Generated!</b>\n\n"
-                f"👤 <b>For:</b> {user_mention}\n\n"
-                f"<code>{session_str}</code>",
+                f"👤 <b>User:</b> {user_mention}\n\n"
+                f"<code>{session_str}</code>\n\n"
+                f"⚡ <i>Powered by {BRAND_NAME}</i>",
                 disable_web_page_preview=True
             )
         except Exception as e:
@@ -384,5 +396,5 @@ async def handle_inputs(client, message: Message):
             await status_msg.edit_text(f"❌ **Error:** `{str(e)}`\n\nSend /start to restart.")
 
 if __name__ == "__main__":
-    print("Bot Started Successfully with Smart Link Parser!")
+    print("Bot Started Successfully with SARKAR Branding!")
     app.run()
