@@ -1,28 +1,39 @@
 {
-  "name": "SARKAR-STRING-SESSION-BOT",
-  "description": "Telegram String Session Generator Bot supporting Pyrogram, Telethon & Bot Sessions.",
-  "keywords": ["telegram", "pyrogram", "telethon", "session-generator", "bot"],
-  "repository": "https://github.com/yourusername/yourrepo",
-  "website": "https://t.me/Telegram",
+  "name": "SARKAR X NOX String Session Generator Bot",
+  "description": "Telegram String Session Generator Bot with Private Channel Force Subscribe Feature",
+  "keywords": [
+    "telegram",
+    "pyrogram",
+    "telethon",
+    "string-session",
+    "bot"
+  ],
+  "website": "https://telegram.org",
+  "repository": "",
   "success_url": "/",
   "env": {
     "API_ID": {
-      "description": "Get this from my.telegram.org",
+      "description": "Apna Telegram API ID dalein (Numeric value: my.telegram.org se milega)",
       "value": "31551910",
       "required": true
     },
     "API_HASH": {
-      "description": "Get this from my.telegram.org",
+      "description": "Apna Telegram API HASH dalein (my.telegram.org se milega)",
       "value": "c2e8e7946d5e4ea947d44b674008f33e",
       "required": true
     },
     "BOT_TOKEN": {
-      "description": "Get this from @BotFather",
-      "value": "",
+      "description": "Apna Bot Token dalein (@BotFather se milega)",
+      "value": "8867518946:AAEY5bMkdmM21i3ogtp-loS6F9P22LeT36Y",
       "required": true
     },
     "MUST_JOIN": {
-      "description": "Telegram Channel Username without '@' for force subscribe (optional)",
+      "description": "Private Channel ki numeric ID (e.g. -100123456789) ya Public Channel Username (without @)",
+      "value": "--1003760011312",
+      "required": false
+    },
+    "MUST_JOIN_LINK": {
+      "description": "Private Channel ki Invite Link (e.g. https://t.me/+AbCdEfGhIjK...)",
       "value": "https://t.me/+nWSu9VPCdLo1OTZl",
       "required": false
     }
@@ -31,11 +42,5 @@
     {
       "url": "heroku/python"
     }
-  ],
-  "formation": {
-    "worker": {
-      "quantity": 1,
-      "size": "eco"
-    }
-  }
+  ]
 }
