@@ -5,9 +5,9 @@ from pyrogram.errors import SessionPasswordNeeded, PhoneCodeInvalid, PhoneCodeEx
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 
 # Configuration (Aap environment variables ya direct values yahan daal sakte hain)
-API_ID = int(os.environ.get("API_ID", "1234567"))  # Apni my.telegram.org wali API_ID dalein
-API_HASH = os.environ.get("API_HASH", "your_api_hash_here")  # Apni API_HASH dalein
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "your_bot_token_here")  # BotFather wala Token dalein
+API_ID = int(os.environ.get("API_ID", "31551910"))  # Apni my.telegram.org wali API_ID dalein
+API_HASH = os.environ.get("API_HASH", "c2e8e7946d5e4ea947d44b674008f33e")  # Apni API_HASH dalein
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8540979538:AAGPRvHt5e-l7wTQbeX4l_pcX7JYr6B910w")  # BotFather wala Token dalein
 
 app = Client("string_gen_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
