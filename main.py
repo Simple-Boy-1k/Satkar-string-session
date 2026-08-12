@@ -1,4 +1,5 @@
 import os
+import time
 import asyncio
 from pyrogram import Client, filters, enums
 from pyrogram.errors import SessionPasswordNeeded, UserNotParticipant, ChatAdminRequired, ChannelInvalid, PeerIdInvalid
@@ -15,7 +16,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 RAW_MUST_JOIN = os.environ.get("MUST_JOIN", "").strip()
 RAW_MUST_JOIN_LINK = os.environ.get("MUST_JOIN_LINK", "").strip()
 
-# Custom Brand Name Config (Only SARKAR)
+# Custom Brand Name Config
 BRAND_NAME = os.environ.get("BRAND_NAME", "𝐒𝐀𝐑𝐊𝐀𝐑").strip()
 
 def setup_force_sub():
@@ -44,6 +45,33 @@ app = Client("string_gen_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_T
 
 USER_DATA = {}
 
+# Safely clear old sessions & delete temporary files
+async def clean_user_session(user_id: int):
+    if user_id in USER_DATA:
+        data = USER_DATA.get(user_id, {})
+        sess_name = data.get("sess_name")
+        
+        # Disconnect clients if running
+        if "p_client" in data:
+            try:
+                await data["p_client"].disconnect()
+            except Exception:
+                pass
+        if "t_client" in data:
+            try:
+                await data["t_client"].disconnect()
+            except Exception:
+                pass
+
+        # Delete temp session file from server
+        if sess_name and os.path.exists(f"{sess_name}.session"):
+            try:
+                os.remove(f"{sess_name}.session")
+            except Exception:
+                pass
+
+        USER_DATA.pop(user_id, None)
+
 # Strict Force Subscribe Verification
 async def check_fsub(client: Client, user_id: int) -> bool:
     if not FSUB_CHAT:
@@ -56,7 +84,7 @@ async def check_fsub(client: Client, user_id: int) -> bool:
     except UserNotParticipant:
         return False
     except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
-        print(f"⚠️ FORCE SUB ERROR: Bot channel me Admin nahi hai ya ID galat hai! Details: {e}")
+        print(f"⚠️ FORCE SUB ERROR: {e}")
         return True
     except Exception as e:
         print(f"Unexpected ForceSub Error: {e}")
@@ -69,8 +97,7 @@ async def start_command(client: Client, message: Message):
     user_first = message.from_user.first_name
     user_mention = f"<a href='tg://user?id={user_id}'>{user_first}</a>"
 
-    if user_id in USER_DATA:
-        USER_DATA.pop(user_id, None)
+    await clean_user_session(user_id)
 
     # Force Subscribe Check
     is_joined = await check_fsub(client, user_id)
@@ -96,8 +123,7 @@ async def start_command(client: Client, message: Message):
 @app.on_message(filters.command("generate") & filters.private)
 async def generate_command(client: Client, message: Message):
     user_id = message.from_user.id
-    if user_id in USER_DATA:
-        USER_DATA.pop(user_id, None)
+    await clean_user_session(user_id)
 
     is_joined = await check_fsub(client, user_id)
     if not is_joined:
@@ -112,25 +138,7 @@ async def generate_command(client: Client, message: Message):
         )
         return
 
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Pyrogram", callback_data="type_pyrogram"),
-            InlineKeyboardButton("Pyrogram V2", callback_data="type_pyrogram_v2")
-        ],
-        [
-            InlineKeyboardButton("Telethon", callback_data="type_telethon")
-        ],
-        [
-            InlineKeyboardButton("Pyrogram Bot", callback_data="type_pyrogram_bot"),
-            InlineKeyboardButton("Telethon Bot", callback_data="type_telethon_bot")
-        ],
-        [InlineKeyboardButton("« Back", callback_data="home_back")]
-    ])
-    text = (
-        f"⚙️ <b>Select Session Type</b>\n\n"
-        f"Choose which string session protocol you want to generate."
-    )
-    await message.reply_text(text, reply_markup=keyboard)
+    await send_session_menu(message)
 
 # Force Sub Callback
 @app.on_callback_query(filters.regex("check_join"))
@@ -170,34 +178,10 @@ async def show_home_menu(message_or_callback):
     elif isinstance(message_or_callback, CallbackQuery):
         await message_or_callback.message.edit_text(text, reply_markup=keyboard, disable_web_page_preview=True)
 
-@app.on_callback_query(filters.regex("home_back"))
-async def home_back_callback(client: Client, callback_query: CallbackQuery):
-    USER_DATA.pop(callback_query.from_user.id, None)
-    await callback_query.answer()
-    await show_home_menu(callback_query)
-
-# Help Menu
-@app.on_callback_query(filters.regex("help_menu"))
-async def help_menu_callback(client: Client, callback_query: CallbackQuery):
-    await callback_query.answer()
-    await callback_query.message.edit_text(
-        f"📖 <b>Instructions & Help:</b>\n\n"
-        f"1. Click on <b>Generate Session</b>.\n"
-        f"2. Select Session Type (Pyrogram / Telethon / Bot).\n"
-        f"3. Send your `API_ID` & `API_HASH` (or send /skip for default credentials).\n"
-        f"4. Send your Phone Number, OTP, and 2FA password.\n"
-        f"5. Receive your String Session instantly!\n\n"
-        f"⚡ <b>Brand:</b> {BRAND_NAME}",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="home_back")]]),
-        disable_web_page_preview=True
-    )
-
-# Session Type Menu
-@app.on_callback_query(filters.regex("choose_session_type"))
-async def session_type_menu(client: Client, callback_query: CallbackQuery):
+async def send_session_menu(message_or_callback):
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Pyrogram", callback_data="type_pyrogram"),
+            InlineKeyboardButton("Pyrogram (V1 - Bot Compatible)", callback_data="type_pyrogram"),
             InlineKeyboardButton("Pyrogram V2", callback_data="type_pyrogram_v2")
         ],
         [
@@ -209,12 +193,39 @@ async def session_type_menu(client: Client, callback_query: CallbackQuery):
         ],
         [InlineKeyboardButton("« Back", callback_data="home_back")]
     ])
-    text = (
-        f"⚙️ <b>Select Session Type</b>\n\n"
-        f"Choose which string session protocol you want to generate."
-    )
+    text = "⚙️ <b>Select Session Type</b>\n\nChoose which string session protocol you want to generate."
+    
+    if isinstance(message_or_callback, Message):
+        await message_or_callback.reply_text(text, reply_markup=keyboard)
+    elif isinstance(message_or_callback, CallbackQuery):
+        await message_or_callback.message.edit_text(text, reply_markup=keyboard)
+
+@app.on_callback_query(filters.regex("home_back"))
+async def home_back_callback(client: Client, callback_query: CallbackQuery):
+    await clean_user_session(callback_query.from_user.id)
     await callback_query.answer()
-    await callback_query.message.edit_text(text, reply_markup=keyboard)
+    await show_home_menu(callback_query)
+
+# Help Menu
+@app.on_callback_query(filters.regex("help_menu"))
+async def help_menu_callback(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer()
+    await callback_query.message.edit_text(
+        f"📖 <b>Instructions & Help:</b>\n\n"
+        f"1. Click on <b>Generate Session</b> or send /generate.\n"
+        f"2. Select <b>Pyrogram (V1)</b> for Userbots.\n"
+        f"3. Send your `API_ID` & `API_HASH` (or send /skip for default credentials).\n"
+        f"4. Send Phone Number, OTP, and 2FA password.\n"
+        f"5. Receive your Session instantly!\n\n"
+        f"⚡ <b>Brand:</b> {BRAND_NAME}",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="home_back")]]),
+        disable_web_page_preview=True
+    )
+
+@app.on_callback_query(filters.regex("choose_session_type"))
+async def session_type_menu_cb(client: Client, callback_query: CallbackQuery):
+    await callback_query.answer()
+    await send_session_menu(callback_query)
 
 # Type Selected Handler
 @app.on_callback_query(filters.regex("^type_"))
@@ -222,23 +233,19 @@ async def select_type_handler(client: Client, callback_query: CallbackQuery):
     user_id = callback_query.from_user.id
     session_type = callback_query.data.replace("type_", "")
     
-    type_display_map = {
-        "pyrogram": "Pyrogram",
-        "pyrogram_v2": "Pyrogram V2",
-        "telethon": "Telethon",
-        "pyrogram_bot": "Pyrogram Bot",
-        "telethon_bot": "Telethon Bot"
-    }
+    await clean_user_session(user_id)
     
-    display_name = type_display_map.get(session_type, session_type)
-    
+    # Generate unique session name every single time
+    sess_name = f"sess_{user_id}_{int(time.time())}"
+
     USER_DATA[user_id] = {
         "session_type": session_type,
-        "step": "api_id"
+        "step": "api_id",
+        "sess_name": sess_name
     }
     
     await callback_query.answer()
-    await callback_query.message.reply_text(f"🚀 Starting <b>{display_name}</b> generator...")
+    await callback_query.message.reply_text(f"🚀 Starting <b>{session_type.upper()}</b> generator...")
     await callback_query.message.reply_text(
         "Please send your <b>API_ID</b> to proceed.\n\n"
         "Send /skip to use default API credentials."
@@ -295,12 +302,13 @@ async def handle_inputs(client: Client, message: Message):
 
     # Step 3: Phone Number & Send OTP
     elif step == "phone":
-        phone_number = text
+        phone_number = text.replace(" ", "")
         status_msg = await message.reply_text("🔄 Sending OTP...")
         
         curr_api_id = data["api_id"]
         curr_api_hash = data["api_hash"]
         stype = data["session_type"]
+        sess_name = data["sess_name"]
 
         try:
             if "telethon" in stype:
@@ -314,7 +322,7 @@ async def handle_inputs(client: Client, message: Message):
                     "phone_code_hash": res.phone_code_hash
                 })
             else:
-                p_client = Client(f"p_{user_id}", api_id=curr_api_id, api_hash=curr_api_hash, in_memory=True)
+                p_client = Client(sess_name, api_id=curr_api_id, api_hash=curr_api_hash, in_memory=True)
                 await p_client.connect()
                 code_res = await p_client.send_code(phone_number)
                 USER_DATA[user_id].update({
@@ -329,7 +337,7 @@ async def handle_inputs(client: Client, message: Message):
                 "Please enter OTP in this format: `1 2 3 4 5` (space separated)."
             )
         except Exception as e:
-            USER_DATA.pop(user_id, None)
+            await clean_user_session(user_id)
             await status_msg.edit_text(f"❌ **Error:** `{str(e)}`\n\nSend /start to restart.")
 
     # Step 4: Verify OTP
@@ -343,14 +351,11 @@ async def handle_inputs(client: Client, message: Message):
                 t_client = data["t_client"]
                 await t_client.sign_in(data["phone_number"], otp_code, phone_code_hash=data["phone_code_hash"])
                 session_str = t_client.session.save()
-                await t_client.disconnect()
             else:
                 p_client = data["p_client"]
                 await p_client.sign_in(data["phone_number"], data["phone_code_hash"], otp_code)
                 session_str = await p_client.export_session_string()
-                await p_client.disconnect()
 
-            USER_DATA.pop(user_id, None)
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
             
             await status_msg.edit_text(
@@ -360,12 +365,13 @@ async def handle_inputs(client: Client, message: Message):
                 f"⚡ <i>Powered by {BRAND_NAME}</i>",
                 disable_web_page_preview=True
             )
+            await clean_user_session(user_id)
 
         except SessionPasswordNeeded:
             USER_DATA[user_id]["step"] = "password"
             await status_msg.edit_text("🔒 2-Step Verification is enabled. Please send your 2FA password:")
         except Exception as e:
-            USER_DATA.pop(user_id, None)
+            await clean_user_session(user_id)
             await status_msg.edit_text(f"❌ **Verification Failed:** `{str(e)}`\n\nSend /start to restart.")
 
     # Step 5: Password (2FA)
@@ -379,14 +385,11 @@ async def handle_inputs(client: Client, message: Message):
                 t_client = data["t_client"]
                 await t_client.sign_in(password=password)
                 session_str = t_client.session.save()
-                await t_client.disconnect()
             else:
                 p_client = data["p_client"]
                 await p_client.check_password(password=password)
                 session_str = await p_client.export_session_string()
-                await p_client.disconnect()
 
-            USER_DATA.pop(user_id, None)
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
 
             await status_msg.edit_text(
@@ -396,8 +399,10 @@ async def handle_inputs(client: Client, message: Message):
                 f"⚡ <i>Powered by {BRAND_NAME}</i>",
                 disable_web_page_preview=True
             )
+            await clean_user_session(user_id)
+
         except Exception as e:
-            USER_DATA.pop(user_id, None)
+            await clean_user_session(user_id)
             await status_msg.edit_text(f"❌ **Error:** `{str(e)}`\n\nSend /start to restart.")
 
     # Step 6: Bot Session Generation
@@ -416,12 +421,11 @@ async def handle_inputs(client: Client, message: Message):
                 session_str = t_client.session.save()
                 await t_client.disconnect()
             else:
-                p_client = Client(f"bot_{user_id}", api_id=curr_api_id, api_hash=curr_api_hash, bot_token=bot_tok, in_memory=True)
+                p_client = Client(f"bot_{user_id}_{int(time.time())}", api_id=curr_api_id, api_hash=curr_api_hash, bot_token=bot_tok, in_memory=True)
                 await p_client.start()
                 session_str = await p_client.export_session_string()
                 await p_client.stop()
 
-            USER_DATA.pop(user_id, None)
             user_mention = f"<a href='tg://user?id={message.from_user.id}'>{message.from_user.first_name}</a>"
 
             await status_msg.edit_text(
@@ -431,10 +435,12 @@ async def handle_inputs(client: Client, message: Message):
                 f"⚡ <i>Powered by {BRAND_NAME}</i>",
                 disable_web_page_preview=True
             )
+            await clean_user_session(user_id)
+
         except Exception as e:
-            USER_DATA.pop(user_id, None)
+            await clean_user_session(user_id)
             await status_msg.edit_text(f"❌ **Error:** `{str(e)}`\n\nSend /start to restart.")
 
 if __name__ == "__main__":
-    print("Bot Started Successfully with SARKAR Branding!")
+    print(f"Bot Started Successfully with {BRAND_NAME} Branding!")
     app.run()
