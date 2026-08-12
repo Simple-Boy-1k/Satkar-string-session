@@ -8,13 +8,14 @@
 
 <p align="center">
   <b>☆𝙎𝘼𝙍𝙆𝘼𝙍 メ 𝙉𝙊𝙓☆</b><br>
-  <i>Advanced Pyrogram Session Generator Bot with Force Subscribe and Custom API Support.</i>
+  <i>Advanced Pyrogram Session Generator Bot with Force Subscribe, User Mention & Custom API Support.</i>
 </p>
 
 ---
 
 ## 🚀 Features
 * **Force Subscribe (F-Sub):** Mandatory channel join check for new users.
+* **User Linking & Mention:** Tags the user directly with their name when they start or generate a session.
 * **Method Selection:** Choose between "Generate via Bot" or "Generate via Tools".
 * **Custom API Integration:** Supports user-provided `API_ID` & `API_HASH` with direct links to `my.telegram.org`.
 * **Full Session Flow:** Handles Phone Number, OTP, and 2-Step Verification (Cloud Password) seamlessly.
@@ -40,10 +41,9 @@
 2. If Force Subscribe is enabled, join the required channel and click **Try Again / Joined**.
 3. Select your preferred method (**Generate via Bot** or **Generate via Tools**).
 4. Send your `API_ID`, `API_HASH`, and phone number when prompted.
-5. Enter the OTP and 2FA password (if enabled) to receive your secure Pyrogram V2 Session String!
+5. Enter the OTP and 2FA password (if enabled) to receive your secure Pyrogram V2 Session String along with your linked name!
 
 <p align="center">
-  <b>☆𝙎𝘼𝙍𝙆𝘼𝙍 メ 𝙉𝙊𝙓☆ | RDX | SK</b><br>
+  <b>DEVELOPER / BRANDING: ☆𝙎𝘼𝙍𝙆𝘼𝙍 メ 𝙉𝙊𝙓☆ | RDX | SK</b><br>
   <i>नॉक्स भाई और उनके दोस्त को चोर के साबकी माकी Chu*😂</i>
 </p>
-
