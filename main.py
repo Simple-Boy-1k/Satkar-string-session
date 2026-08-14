@@ -82,20 +82,23 @@ async def clean_user_session(user_id: int):
 
         USER_DATA.pop(user_id, None)
 
-# Custom Pyrogram V1 String Exporter
+# --- FIXED: Custom Pyrogram V1 Exact 271-Bytes String Exporter ---
 async def get_pyrogram_v1_string(p_client: Client) -> str:
     try:
         me = await p_client.get_me()
         dc_id = await p_client.storage.dc_id()
         test_mode = await p_client.storage.test_mode()
         auth_key = await p_client.storage.auth_key()
+        api_id = p_client.api_id
         
+        # Exact Pyrogram V1 format (1 + 4 + 1 + 256 + 8 + 1 = 271 bytes)
         packed = struct.pack(
-            ">B?256sI?",
+            ">BI?256sQ?",
             dc_id,
+            api_id,
             test_mode,
             auth_key,
-            me.id & 0xFFFFFFFF,
+            me.id,
             me.is_bot
         )
         return base64.urlsafe_b64encode(packed).decode("utf-8")
@@ -117,7 +120,6 @@ async def check_fsub(client: Client, user_id: int) -> bool:
         return False
     except (ChatAdminRequired, ChannelInvalid, PeerIdInvalid) as e:
         print(f"⚠️ FSUB CONFIG ERROR (Make sure bot is Admin in the channel): {e}")
-        # Allows user to proceed if bot lacks admin permissions instead of blocking
         return True
     except Exception as e:
         print(f"⚠️ FSUB UNKNOWN ERROR: {e}")
